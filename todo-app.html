@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI To-Do リスト</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; background: #f5f5f0; min-height: 100vh; padding: 2rem 1rem; }
+  .container { max-width: 700px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 500; margin-bottom: 6px; color: #1a1a1a; }
+  .subtitle { font-size: 14px; color: #888; margin-bottom: 2rem; }
+
+  .api-area { background: #fff; border: 0.5px solid #ddd; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+  .api-label { font-size: 12px; color: #888; margin-bottom: 6px; }
+  .api-row { display: flex; gap: 8px; }
+  .api-row input { flex: 1; height: 36px; padding: 0 12px; border: 0.5px solid #ddd; border-radius: 8px; font-size: 14px; font-family: monospace; background: #fafafa; }
+  .api-row input:focus { outline: none; box-shadow: 0 0 0 2px #ddd; }
+  .save-btn { padding: 0 16px; height: 36px; border: 0.5px solid #ddd; border-radius: 8px; background: transparent; font-size: 13px; cursor: pointer; }
+  .save-btn:hover { background: #f5f5f0; }
+  .api-status { font-size: 12px; margin-top: 6px; min-height: 16px; }
+  .api-status.ok { color: #1D9E75; }
+  .api-status.ng { color: #E24B4A; }
+
+  .input-area { background: #fff; border: 0.5px solid #ddd; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1.5rem; }
+  .input-label { font-size: 12px; color: #888; margin-bottom: 6px; }
+  textarea { width: 100%; min-height: 80px; resize: vertical; padding: 10px 12px; border: 0.5px solid #ddd; border-radius: 8px; font-size: 15px; font-family: inherit; background: #fafafa; }
+  textarea:focus { outline: none; box-shadow: 0 0 0 2px #ddd; }
+  .send-btn { margin-top: 10px; padding: 10px 20px; border: 0.5px solid #ddd; border-radius: 8px; background: #1a1a1a; color: #fff; font-size: 14px; font-family: inherit; cursor: pointer; }
+  .send-btn:hover { background: #333; }
+  .send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .status { font-size: 13px; color: #888; margin-top: 8px; min-height: 20px; }
+
+  .categories { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  @media (max-width: 500px) { .categories { grid-template-columns: 1fr; } }
+  .cat-card { background: #fff; border: 0.5px solid #e5e5e5; border-radius: 12px; padding: 1rem; }
+  .cat-title { font-size: 13px; font-weight: 500; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .work .dot { background: #378ADD; }
+  .work .cat-title { color: #185FA5; }
+  .family .dot { background: #1D9E75; }
+  .family .cat-title { color: #0F6E56; }
+  .private .dot { background: #D4537E; }
+  .private .cat-title { color: #993556; }
+  .todo-item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 0.5px solid #f0f0f0; font-size: 14px; line-height: 1.5; color: #1a1a1a; }
+  .todo-item:last-child { border-bottom: none; }
+  .todo-item input[type=checkbox] { margin-top: 3px; flex-shrink: 0; cursor: pointer; }
+  .todo-item.done span { text-decoration: line-through; color: #bbb; }
+  .empty { font-size: 13px; color: #bbb; font-style: italic; }
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ddd; border-top-color: #888; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 4px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>AI To-Do リスト</h1>
+  <p class="subtitle">Claude APIがタスクを自動で仕事・家族・プライベートに分類します</p>
+
+  <div class="api-area">
+    <div class="api-label">Anthropic APIキー（1Passwordからコピペ）</div>
+    <div class="api-row">
+      <input type="password" id="api-key" placeholder="sk-ant-..." />
+      <button class="save-btn" onclick="saveKey()">保存</button>
+    </div>
+    <div class="api-status" id="api-status"></div>
+  </div>
+
+  <div class="input-area">
+    <div class="input-label">やることを自由に入力（複数まとめてOK）</div>
+    <textarea id="input" placeholder="例：明日田中さんに電話して、牛乳と卵買うの忘れずに、子供の参観日は金曜日、来週の企画書仕上げる"></textarea>
+    <button class="send-btn" id="send-btn" onclick="processInput()">AIで分類する</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="categories">
+    <div class="cat-card work">
+      <div class="cat-title"><span class="dot"></span>仕事</div>
+      <div id="work-list"><div class="empty">まだなし</div></div>
+    </div>
+    <div class="cat-card family">
+      <div class="cat-title"><span class="dot"></span>家族</div>
+      <div id="family-list"><div class="empty">まだなし</div></div>
+    </div>
+    <div class="cat-card private">
+      <div class="cat-title"><span class="dot"></span>プライベート</div>
+      <div id="private-list"><div class="empty">まだなし</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const todos = { work: [], family: [], private: [] };
+let apiKey = '';
+
+function saveKey() {
+  const val = document.getElementById('api-key').value.trim();
+  if (!val.startsWith('sk-ant-')) {
+    document.getElementById('api-status').className = 'api-status ng';
+    document.getElementById('api-status').textContent = 'APIキーは sk-ant- から始まります。確認してください。';
+    return;
+  }
+  apiKey = val;
+  document.getElementById('api-status').className = 'api-status ok';
+  document.getElementById('api-status').textContent = '保存しました！';
+}
+
+function setStatus(msg, loading = false) {
+  document.getElementById('status').innerHTML = loading
+    ? `<span class="spinner"></span>${msg}`
+    : msg;
+}
+
+async function processInput() {
+  if (!apiKey) {
+    setStatus('先にAPIキーを入力して保存してください。');
+    return;
+  }
+  const input = document.getElementById('input').value.trim();
+  if (!input) return;
+
+  const btn = document.getElementById('send-btn');
+  btn.disabled = true;
+  setStatus('Claudeが分類中...', true);
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: `あなたはタスク分類AIです。ユーザーの入力から複数のタスクを抽出し、以下の3カテゴリに分類してください。
+カテゴリ：work（仕事）、family（家族）、private（プライベート）
+必ずJSON形式のみで返してください。前置きや説明は不要です。
+形式：{"tasks":[{"text":"タスク内容","category":"work/family/private"}]}`,
+        messages: [{ role: 'user', content: input }]
+      })
+    });
+
+    const data = await res.json();
+    const raw = data.content?.[0]?.text ?? '{}';
+    const clean = raw.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    const tasks = parsed.tasks || [];
+
+    tasks.forEach(t => {
+      if (todos[t.category] !== undefined) {
+        todos[t.category].push({ text: t.text, done: false });
+      }
+    });
+
+    renderAll();
+    document.getElementById('input').value = '';
+    setStatus(`✓ ${tasks.length}件のタスクを追加しました！`);
+  } catch (e) {
+    setStatus('エラー: ' + e.message);
+  }
+  btn.disabled = false;
+}
+
+function renderAll() {
+  render('work', 'work-list');
+  render('family', 'family-list');
+  render('private', 'private-list');
+}
+
+function render(cat, elId) {
+  const el = document.getElementById(elId);
+  if (todos[cat].length === 0) {
+    el.innerHTML = '<div class="empty">まだなし</div>';
+    return;
+  }
+  el.innerHTML = todos[cat].map((t, i) => `
+    <div class="todo-item ${t.done ? 'done' : ''}">
+      <input type="checkbox" ${t.done ? 'checked' : ''} onchange="toggle('${cat}', ${i})">
+      <span>${t.text}</span>
+    </div>
+  `).join('');
+}
+
+function toggle(cat, i) {
+  todos[cat][i].done = !todos[cat][i].done;
+  renderAll();
+}
+</script>
+</body>
+</html>
